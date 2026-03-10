@@ -3,6 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' https://accounts.google.com https://apis.google.com; style-src 'self' 'unsafe-inline'; connect-src https://www.googleapis.com https://accounts.google.com https://sheets.googleapis.com; frame-src https://accounts.google.com; img-src 'self' https://*.googleusercontent.com data:;">
   <title>みんなの経理 | 無料会計ソフト</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -1201,7 +1202,41 @@
     var CLIENT_ID = '267211003481-pck8amdusjfedr9gvvlje4uke53ig4lh.apps.googleusercontent.com';
     var SCOPES = 'https://www.googleapis.com/auth/spreadsheets https://www.googleapis.com/auth/drive.file';
     var tokenClient = null;
-    var accessToken = null;
+
+    // Token management (closure to avoid easy global access)
+    var _token = { value: null };
+    function getAccessToken() { return _token.value; }
+    function setAccessToken(t) { _token.value = t; }
+    function clearAccessToken() { _token.value = null; }
+
+    // Backwards compat: keep accessToken as getter/setter
+    Object.defineProperty(window, 'accessToken', {
+      get: function() { return getAccessToken(); },
+      set: function(v) { setAccessToken(v); },
+    });
+
+    // API fetch helper with error handling and token expiry detection
+    async function apiFetch(url, options) {
+      var token = getAccessToken();
+      if (!token) throw new Error('未ログインです');
+      options = options || {};
+      options.headers = options.headers || {};
+      options.headers['Authorization'] = 'Bearer ' + token;
+      var res = await fetch(url, options);
+      if (res.status === 401 || res.status === 403) {
+        clearAccessToken();
+        document.getElementById('auth-signed-out').style.display = 'block';
+        document.getElementById('auth-signed-in').style.display = 'none';
+        updateAuthButtons(false);
+        throw new Error('認証が切れました。再度ログインしてください。');
+      }
+      if (!res.ok) {
+        var errBody = '';
+        try { errBody = await res.text(); } catch(e) {}
+        throw new Error('API エラー (' + res.status + '): ' + errBody.slice(0, 200));
+      }
+      return res;
+    }
     var businessMode = localStorage.getItem('kaikei_business_mode');
     var lastSoleResult = null;
     var lastCorpResult = null;
@@ -1405,9 +1440,8 @@
             document.getElementById('auth-signed-in').style.display = 'block';
             updateAuthButtons(true);
             applyBusinessMode();
-            fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
-              headers: { Authorization: 'Bearer ' + accessToken },
-            }).then(function(r) { return r.json(); }).then(function(info) {
+            apiFetch('https://www.googleapis.com/oauth2/v3/userinfo')
+              .then(function(r) { return r.json(); }).then(function(info) {
               document.getElementById('user-name').textContent = info.name || info.email;
               if (info.picture) document.getElementById('user-avatar').src = info.picture;
             }).catch(function() {});
@@ -1479,16 +1513,15 @@
 
     // ==================== Google Sheets ====================
     async function findOrCreateSpreadsheet() {
-      var searchRes = await fetch(
-        'https://www.googleapis.com/drive/v3/files?q=name%3D%27' + encodeURIComponent(SPREADSHEET_TITLE) + '%27+and+mimeType%3D%27application/vnd.google-apps.spreadsheet%27+and+trashed%3Dfalse&fields=files(id,name)',
-        { headers: { Authorization: 'Bearer ' + accessToken } }
+      var searchRes = await apiFetch(
+        'https://www.googleapis.com/drive/v3/files?q=name%3D%27' + encodeURIComponent(SPREADSHEET_TITLE) + '%27+and+mimeType%3D%27application/vnd.google-apps.spreadsheet%27+and+trashed%3Dfalse&fields=files(id,name)'
       );
       var searchData = await searchRes.json();
       if (searchData.files && searchData.files.length > 0) return searchData.files[0].id;
 
-      var createRes = await fetch('https://sheets.googleapis.com/v4/spreadsheets', {
+      var createRes = await apiFetch('https://sheets.googleapis.com/v4/spreadsheets', {
         method: 'POST',
-        headers: { Authorization: 'Bearer ' + accessToken, 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           properties: { title: SPREADSHEET_TITLE },
           sheets: [
@@ -1506,20 +1539,19 @@
     // Ensure a sheet exists (for existing spreadsheets that may not have all sheets)
     async function ensureSheet(spreadsheetId, sheetName, headers) {
       // Check if sheet exists
-      var metaRes = await fetch(
-        'https://sheets.googleapis.com/v4/spreadsheets/' + spreadsheetId + '?fields=sheets.properties.title',
-        { headers: { Authorization: 'Bearer ' + accessToken } }
+      var metaRes = await apiFetch(
+        'https://sheets.googleapis.com/v4/spreadsheets/' + spreadsheetId + '?fields=sheets.properties.title'
       );
       var meta = await metaRes.json();
       var exists = meta.sheets && meta.sheets.some(function(s) { return s.properties.title === sheetName; });
       if (exists) return;
 
       // Add the sheet
-      await fetch(
+      await apiFetch(
         'https://sheets.googleapis.com/v4/spreadsheets/' + spreadsheetId + ':batchUpdate',
         {
           method: 'POST',
-          headers: { Authorization: 'Bearer ' + accessToken, 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             requests: [{ addSheet: { properties: { title: sheetName } } }]
           })
@@ -1527,11 +1559,11 @@
       );
       // Add headers
       if (headers) {
-        await fetch(
+        await apiFetch(
           'https://sheets.googleapis.com/v4/spreadsheets/' + spreadsheetId + '/values/' + encodeURIComponent(sheetName) + '!A1:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS',
           {
             method: 'POST',
-            headers: { Authorization: 'Bearer ' + accessToken, 'Content-Type': 'application/json' },
+            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ values: [headers] })
           }
         );
@@ -1561,9 +1593,9 @@
         } else {
           statusEl.textContent = '先に計算を実行してください'; return;
         }
-        await fetch(
+        await apiFetch(
           'https://sheets.googleapis.com/v4/spreadsheets/' + spreadsheetId + '/values/' + encodeURIComponent(sheetName) + '!A:Z:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS',
-          { method: 'POST', headers: { Authorization: 'Bearer ' + accessToken, 'Content-Type': 'application/json' }, body: JSON.stringify({ values: [values] }) }
+          { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ values: [values] }) }
         );
         statusEl.textContent = 'Google Sheetsに保存しました';
       } catch (e) { statusEl.textContent = '保存エラー: ' + e.message; }
@@ -1593,9 +1625,9 @@
         var spreadsheetId = await findOrCreateSpreadsheet();
         await ensureSheet(spreadsheetId, '仕訳帳', ['日付','摘要','借方科目コード','借方科目名','貸方科目コード','貸方科目名','金額']);
         var values = [date, desc, debitCode, getAccountName(debitCode), creditCode, getAccountName(creditCode), amount];
-        await fetch(
+        await apiFetch(
           'https://sheets.googleapis.com/v4/spreadsheets/' + spreadsheetId + '/values/' + encodeURIComponent('仕訳帳') + '!A:Z:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS',
-          { method: 'POST', headers: { Authorization: 'Bearer ' + accessToken, 'Content-Type': 'application/json' }, body: JSON.stringify({ values: [values] }) }
+          { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ values: [values] }) }
         );
         statusEl.textContent = '仕訳を保存しました';
         // Clear form
@@ -1611,9 +1643,8 @@
       try {
         var spreadsheetId = await findOrCreateSpreadsheet();
         await ensureSheet(spreadsheetId, '仕訳帳', ['日付','摘要','借方科目コード','借方科目名','貸方科目コード','貸方科目名','金額']);
-        var res = await fetch(
-          'https://sheets.googleapis.com/v4/spreadsheets/' + spreadsheetId + '/values/' + encodeURIComponent('仕訳帳') + '!A:G',
-          { headers: { Authorization: 'Bearer ' + accessToken } }
+        var res = await apiFetch(
+          'https://sheets.googleapis.com/v4/spreadsheets/' + spreadsheetId + '/values/' + encodeURIComponent('仕訳帳') + '!A:G'
         );
         var data = await res.json();
         journalEntries = [];
@@ -1670,9 +1701,8 @@
       try {
         var spreadsheetId = await findOrCreateSpreadsheet();
         // Get sheet ID for 仕訳帳
-        var metaRes = await fetch(
-          'https://sheets.googleapis.com/v4/spreadsheets/' + spreadsheetId + '?fields=sheets.properties',
-          { headers: { Authorization: 'Bearer ' + accessToken } }
+        var metaRes = await apiFetch(
+          'https://sheets.googleapis.com/v4/spreadsheets/' + spreadsheetId + '?fields=sheets.properties'
         );
         var meta = await metaRes.json();
         var sheetId = null;
@@ -1681,11 +1711,11 @@
         });
         if (sheetId === null) return;
 
-        await fetch(
+        await apiFetch(
           'https://sheets.googleapis.com/v4/spreadsheets/' + spreadsheetId + ':batchUpdate',
           {
             method: 'POST',
-            headers: { Authorization: 'Bearer ' + accessToken, 'Content-Type': 'application/json' },
+            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               requests: [{
                 deleteDimension: {
@@ -1907,9 +1937,9 @@
         await ensureSheet(spreadsheetId, '請求書', ['請求番号','請求日','請求先','小計','消費税','合計']);
         var d = currentInvoiceData;
         var values = [d.number, d.date, d.client, d.subtotal, d.tax, d.total];
-        await fetch(
+        await apiFetch(
           'https://sheets.googleapis.com/v4/spreadsheets/' + spreadsheetId + '/values/' + encodeURIComponent('請求書') + '!A:Z:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS',
-          { method: 'POST', headers: { Authorization: 'Bearer ' + accessToken, 'Content-Type': 'application/json' }, body: JSON.stringify({ values: [values] }) }
+          { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ values: [values] }) }
         );
         statusEl.textContent = '保存しました';
       } catch (e) { statusEl.textContent = '保存エラー: ' + e.message; }
