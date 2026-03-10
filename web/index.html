@@ -1064,6 +1064,7 @@
 
     // ==================== LP / App Toggle ====================
     function enterApp() {
+      localStorage.setItem('kaikei_visited', '1');
       document.getElementById('lp').style.display = 'none';
       document.getElementById('app-wrapper').style.display = 'block';
       applyBusinessMode();
@@ -1718,8 +1719,12 @@
       document.getElementById('inv-due').value = nextMonth.toISOString().split('T')[0];
 
       populateAccountSelects();
-      applyBusinessMode();
       initGoogleAuth();
+
+      // 2回目以降はLPをスキップしてアプリ直接表示
+      if (localStorage.getItem('kaikei_visited')) {
+        enterApp();
+      }
     });
   </script>
 
