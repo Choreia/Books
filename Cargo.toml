@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 description = "みんなの経理 - 個人事業主・一人法人向け無料税金計算Webアプリ"
 license = "MIT"
-repository = "https://github.com/SaasIsDead/minnano-keiri"
+repository = "https://github.com/Choreia/minnano-keiri"
 
 [dependencies]
 kaikei-rs = "0.2"

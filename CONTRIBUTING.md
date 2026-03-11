@@ -83,7 +83,7 @@ cp -r pkg web/pkg
 
 ## Issue の報告
 
-バグ報告や機能提案は [Issues](https://github.com/SaasIsDead/minnano-keiri/issues) からお願いします。
+バグ報告や機能提案は [Issues](https://github.com/Choreia/minnano-keiri/issues) からお願いします。
 
 ### バグ報告のテンプレート
 

@@ -1,13 +1,13 @@
 # みんなの経理
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![GitHub Pages](https://img.shields.io/badge/使ってみる-GitHub%20Pages-brightgreen)](https://saasisdead.github.io/minnano-keiri/)
+[![GitHub Pages](https://img.shields.io/badge/使ってみる-GitHub%20Pages-brightgreen)](https://choreia.github.io/minnano-keiri/)
 
 **個人から中小法人まで使える完全無料の会計ソフト**
 
 サーバー不要・インストール不要。ブラウザだけで税金計算から請求書作成まで、経理業務をまるごとカバーします。データはすべてご自身のGoogle Sheetsに保存されるため、プライバシーも安心です。
 
-**[使ってみる](https://saasisdead.github.io/minnano-keiri/)**
+**[使ってみる](https://choreia.github.io/minnano-keiri/)**
 
 ## 特徴
 
@@ -48,7 +48,7 @@
 
 ```bash
 # リポジトリのクローン
-git clone https://github.com/SaasIsDead/minnano-keiri.git
+git clone https://github.com/Choreia/minnano-keiri.git
 cd minnano-keiri
 
 # Rustとwasm-packのインストール（未インストールの場合）
